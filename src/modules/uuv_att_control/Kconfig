@@ -6,7 +6,7 @@ menuconfig MODULES_UUV_ATT_CONTROL
 
 menuconfig USER_UUV_ATT_CONTROL
 	bool "uuv_att_control running as userspace module"
-	default y
+	default n
 	depends on BOARD_PROTECTED && MODULES_UUV_ATT_CONTROL
 	---help---
 		Put uuv_att_control in userspace memory

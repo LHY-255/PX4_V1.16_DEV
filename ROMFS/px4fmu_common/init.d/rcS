@@ -21,10 +21,12 @@ set +e
 # it wastes flash
 #
 set R /
+
 set FCONFIG /fs/microsd/etc/config.txt
 set FEXTRAS /fs/microsd/etc/extras.txt
 set FRC /fs/microsd/etc/rc.txt
 set IOFW "/etc/extras/px4_io-v2_default.bin"
+
 set LOGGER_ARGS ""
 set LOGGER_BUF 8
 set PARAM_FILE ""
