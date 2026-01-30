@@ -53,7 +53,7 @@ CONFIG_MODULES_VTOL_ATT_CONTROL=n       #关闭VTOL的相关模块
 
 ***
 
-# 二.代码执行流程
+# 二.代码执行流程(对照rcS文件阅读此章节)
 
   ## 1.rcS脚本详细解析
 
@@ -183,16 +183,20 @@ then
 ```
 else
 
-	# Load param file location from kconfig
-	. ${R}etc/init.d/rc.filepaths
-
+	# Load param file location from kconfig #这里说从kconfig读取参数，其实就是我们裁剪固件的文件以及drivers和modules文件中的kconfig文件决定。这里解释了我们裁剪配置外设是怎么实现的。
+	. ${R}etc/init.d/rc.filepaths  #这个文件就是编译固件时由构建系统生成的
+```
+- 确保存储在芯片内部 MTD 分区中的工厂校准数据（陀螺仪、加速度计的出厂校准值）是完好无损的，防止飞控加载错误的校准数据导致飞行事故
+```
 	# Check if /fs/mtd_params is a valid BSON file
 	if ! bsondump docsize /fs/mtd_caldata
 	then
 		echo "New /fs/mtd_caldata size is:"
 		bsondump docsize /fs/mtd_caldata
 	fi
-
+```
+- 加载工厂校准数据
+```
 	#
 	# Load parameters.
 	#
@@ -201,20 +205,34 @@ else
 	then
 		param load /fs/mtd_caldata
 	fi
-
+```
+- 加载用户主参数
+```
 	param select $PARAM_FILE
+```
+- 如果主参数文件损坏（导入失败），脚本会执行以下一系列急救措施：
+- 在控制台打印错误信息
+- 将开机提示音设置为错误音，用声音警告用户
+```
 	if ! param import
 	then
 		echo "ERROR [init] param import failed"
 		set STARTUP_TUNE 2 # tune 2 = ERROR_TUNE
-
+```
+- 尝试打印损坏文件的结构以便调试
+```
 		bsondump $PARAM_FILE
-
+```
+- 如果 SD 卡可用，将损坏的参数文件复制一份保存，命名为 `param_import_fail.bson`，供开发者后续分析原因
+```
 		if [ -d "/fs/microsd" ]
 		then
 			# try to make a backup copy
 			cp $PARAM_FILE /fs/microsd/param_import_fail.bson
-
+```
+- 尝试备份恢复,并且将内核启动日志输出到SD卡上的 `param_import_fail.txt` 文件中
+- 这里是备份恢复时，是脚本在控制，脚本知道路径在哪，直接指给飞控看。
+```
 			# try importing from backup file
 			if [ -f $PARAM_BACKUP_FILE ]
 			then
@@ -234,24 +252,42 @@ else
 			dmesg >> /fs/microsd/param_import_fail.txt &
 		fi
 	fi
-
+```
+- 如果SD卡可用，就告诉系统将参数的备份文件路径设置为 `$PARAM_BACKUP_FILE` ，之后保存参数的时候，也会在这个地址下保存一个备份。
+- 这里的意思是说，在保存备份的时候是飞控系统在后台自动控制，所以需要提前注册好路径，飞控才知道往哪写。
+```
 	if [ $STORAGE_AVAILABLE = yes ]
 	then
 		param select-backup $PARAM_BACKUP_FILE
 	fi
-
+```
+- 以太网硬件检测与初始化（如果支持以太网的话）
+```
 	if mft query -q -k MFT -s MFT_ETHERNET -v 1
 	then
 		netman update -i eth0
 	fi
-
+```
+- 在重置飞控大部分参数（如 PID、安全设置等）的同时，保留最关键的校准数据和机架配置，从而避免重置后必须重新进行繁琐的传感器和遥控器校准
+```
 	# To trigger a parameter reset during boot SYS_AUTCONFIG was set to 1 before
 	if param greater SYS_AUTOCONFIG 0
 	then
 		# Reset parameters except airframe, parameter version, RC calibration, sensor calibration, flight modes, total flight time, flight UUID
-		param reset_all SYS_AUTOSTART SYS_PARAM_VER RC* CAL_* COM_FLTMODE* LND_FLIGHT* TC_* COM_FLIGHT*
+```
+- 这些参数在重置飞控时被保留
+- `SYS_AUTOSTART`机架类型
+- `SYS_PARAM_VER`参数版本号，用于防止重复触发重置
+- `RC*`遥控器校准数据。保留了你的摇杆最大/最小值和通道映射，不需要重做 RC 校准
+- `CAL_*`传感器校准数据。最关键的部分！保留了加速度计、陀螺仪、磁力计和水平校准数据
+- `COM_FLTMODE*`飞行模式开关设置。保留了你习惯的“定点”、“自稳”等开关映射 
+- `LND_FLIGHT*` `TC_*` `COM_FLIGHT*`飞行统计数据。保留了总飞行时间、飞行次数和唯一的飞行 UUID，用于寿命记录
+```
+		param reset_all SYS_AUTOSTART SYS_PARAM_VER RC* CAL_* COM_FLTMODE* LND_FLIGHT* TC_* COM_FLIGHT* 
 	fi
-
+```
+- 
+```
 	#
 	# Optional board architecture defaults: rc.board_arch_defaults
 	#
@@ -262,6 +298,7 @@ else
 		. $BOARD_ARCH_RC_DEFAULTS
 	fi
 	unset BOARD_ARCH_RC_DEFAULTS
+```
 
 	#
 	# Optional board defaults: rc.board_defaults
