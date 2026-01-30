@@ -11,6 +11,7 @@ PX4 version： 1.16
 
 /PX4-Autopilot/boards/px4/fmu-v6x/default.px4board
 
+```
 展示修改的部分：
 CONFIG_COMMON_DIFFERENTIAL_PRESSURE=y   #压差传感器开启
 CONFIG_DRIVERS_MS4525=y                  #空速计开启
@@ -35,7 +36,7 @@ CONFIG_MODULES_MC_POS_CONTROL=y    #开启多旋翼模块
 CONFIG_MODULES_MC_RATE_CONTROL=y    #开启多旋翼模块
 CONFIG_MODE_NAVIGATOR_VTOL_TAKEOFF=n     #关闭VTOL的相关模块
 CONFIG_MODULES_VTOL_ATT_CONTROL=n       #关闭VTOL的相关模块
-
+```
 
 无人车、无人潜艇等模块是默认关闭的，可以不用设置。如果要设置，可以在
 /PX4-Autopilot/boards/px4/fmu-v6x/default.px4board文件中显式开启，也可以在PX4/PX4-Autopilot/src/modules中对应模块的Kconfig文件中开启或者关闭。
