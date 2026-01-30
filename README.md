@@ -186,6 +186,7 @@ else
 	# Load param file location from kconfig #这里说从kconfig读取参数，其实就是我们裁剪固件的文件以及drivers和modules文件中的kconfig文件决定。这里解释了我们裁剪配置外设是怎么实现的。
 	. ${R}etc/init.d/rc.filepaths  #这个文件就是编译固件时由构建系统生成的
 ```
+
 - 确保存储在芯片内部 MTD 分区中的工厂校准数据（陀螺仪、加速度计的出厂校准值）是完好无损的，防止飞控加载错误的校准数据导致飞行事故
 ```
 	# Check if /fs/mtd_params is a valid BSON file
@@ -195,6 +196,7 @@ else
 		bsondump docsize /fs/mtd_caldata
 	fi
 ```
+
 - 加载工厂校准数据
 ```
 	#
@@ -206,10 +208,12 @@ else
 		param load /fs/mtd_caldata
 	fi
 ```
+
 - 加载用户主参数
 ```
 	param select $PARAM_FILE
 ```
+
 - 如果主参数文件损坏（导入失败），脚本会执行以下一系列急救措施：
 - 在控制台打印错误信息
 - 将开机提示音设置为错误音，用声音警告用户
@@ -219,10 +223,12 @@ else
 		echo "ERROR [init] param import failed"
 		set STARTUP_TUNE 2 # tune 2 = ERROR_TUNE
 ```
+
 - 尝试打印损坏文件的结构以便调试
 ```
 		bsondump $PARAM_FILE
 ```
+
 - 如果 SD 卡可用，将损坏的参数文件复制一份保存，命名为 `param_import_fail.bson`，供开发者后续分析原因
 ```
 		if [ -d "/fs/microsd" ]
@@ -230,6 +236,7 @@ else
 			# try to make a backup copy
 			cp $PARAM_FILE /fs/microsd/param_import_fail.bson
 ```
+
 - 尝试备份恢复,并且将内核启动日志输出到SD卡上的 `param_import_fail.txt` 文件中
 - 这里是备份恢复时，是脚本在控制，脚本知道路径在哪，直接指给飞控看。
 ```
@@ -253,6 +260,7 @@ else
 		fi
 	fi
 ```
+
 - 如果SD卡可用，就告诉系统将参数的备份文件路径设置为 `$PARAM_BACKUP_FILE` ，之后保存参数的时候，也会在这个地址下保存一个备份。
 - 这里的意思是说，在保存备份的时候是飞控系统在后台自动控制，所以需要提前注册好路径，飞控才知道往哪写。
 ```
@@ -261,6 +269,7 @@ else
 		param select-backup $PARAM_BACKUP_FILE
 	fi
 ```
+
 - 以太网硬件检测与初始化（如果支持以太网的话）
 ```
 	if mft query -q -k MFT -s MFT_ETHERNET -v 1
@@ -268,6 +277,7 @@ else
 		netman update -i eth0
 	fi
 ```
+
 - 在重置飞控大部分参数（如 PID、安全设置等）的同时，保留最关键的校准数据和机架配置，从而避免重置后必须重新进行繁琐的传感器和遥控器校准
 ```
 	# To trigger a parameter reset during boot SYS_AUTCONFIG was set to 1 before
@@ -275,6 +285,7 @@ else
 	then
 		# Reset parameters except airframe, parameter version, RC calibration, sensor calibration, flight modes, total flight time, flight UUID
 ```
+
 - 这些参数在重置飞控时被保留
 - `SYS_AUTOSTART`机架类型
 - `SYS_PARAM_VER`参数版本号，用于防止重复触发重置
@@ -286,7 +297,15 @@ else
 		param reset_all SYS_AUTOSTART SYS_PARAM_VER RC* CAL_* COM_FLTMODE* LND_FLIGHT* TC_* COM_FLIGHT* 
 	fi
 ```
-- 
+
+- PX4 启动配置的分层加载机制中的第一层——架构级默认配置
+- `PX4-Autopilot/platforms/nuttx/init/stm32h7/rc.board_arch_defaults`
+- 在加载具体机型参数之前，先加载STM32H7架构通用的默认配置
+- 将 EKF2（估计器）的多 IMU 融合模式设为 3（通常指多路并发融合或更激进的冗余策略）。
+- 开启实时频谱分析 (FFT)
+- 开启 PID 自动调参，开启此功能后，可以在QGC中绑定一个RC的按键，按下这个按键，STM32H7会故意向电机发送瞬间的扰动指令，让PX4内部的PID自动调参，获得更优化的参数。——系统辨识（System Identification）
+- 开启高级 CAN 总线支持
+- 增大日志缓存
 ```
 	#
 	# Optional board architecture defaults: rc.board_arch_defaults
@@ -299,6 +318,14 @@ else
 	fi
 	unset BOARD_ARCH_RC_DEFAULTS
 ```
+-板级硬件默认配置
+-开网口: 默认配置好了以太网连接 QGC
+-选芯片: 告诉系统电源模块是 INA226。
+-管温度: 开启 IMU 加热
+-定版本: 解决不同批次硬件的传感器 ID 冲突
+-具体看下面这个文件
+-文件位置`PX4-Autopilot/boards/ark/fmu-v6x/init/rc.board_defaults`
+```
 
 	#
 	# Optional board defaults: rc.board_defaults
@@ -310,7 +337,7 @@ else
 		. $BOARD_RC_DEFAULTS
 	fi
 	unset BOARD_RC_DEFAULTS
-
+```
 	# Load airframe configuration based on SYS_AUTOSTART parameter
 	if ! param compare SYS_AUTOSTART 0
 	then
@@ -732,4 +759,5 @@ else
 # End of autostart.
 #
 fi
-  ```
+```
+
