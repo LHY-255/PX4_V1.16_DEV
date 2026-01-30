@@ -54,7 +54,7 @@ CONFIG_MODULES_VTOL_ATT_CONTROL=n       #关闭VTOL的相关模块
 
 # 二.代码执行流程
 
-  ## 1.rcS
+  ## 1.rcS文件详细解析
 
 飞控硬件上电并且完成`Bootloader`引导后，由实时操作系统`NuttX`调用第一个启动脚本：`PX4-Autopilot/ROMFS/px4fmu_common/init.d/rcS`，该脚本主要完成如下任务：
 
