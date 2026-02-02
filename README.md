@@ -266,7 +266,7 @@ else
 ```
 	if [ $STORAGE_AVAILABLE = yes ]
 	then
-		param select-backup $PARAM_BACKUP_FILE
+		param select-backup $PARAM_BACKUP_FILEv
 	fi
 ```
 
@@ -338,6 +338,12 @@ else
 	fi
 	unset BOARD_RC_DEFAULTS
 ```
+- 机架配置加载
+- 根据设定的机架ID，从FLASH中找到对应的配置文件并运行
+- 如果flash中没有会去sd卡中找
+- 如果都没有则报错，会有蜂鸣器提示音
+- `VEHICLE_TYPE`来自对应的机架文件
+```
 	# Load airframe configuration based on SYS_AUTOSTART parameter
 	if ! param compare SYS_AUTOSTART 0
 	then
@@ -363,7 +369,10 @@ else
 			tune_control play error
 		fi
 	fi
-
+```
+- 当刷写了新版本的固件时，强制系统进行一次重启和参数清理，以防止旧版本的参数在新固件上导致错误或炸机
+- `SYS_AUTOCONFIG 1`，重新上电后会执行数据清除
+```
 	# Check parameter version and reset upon airframe configuration version mismatch.
 	# Reboot required because "param reset_all" would reset all "param set" lines from airframe.
 	if ! param compare SYS_PARAM_VER ${PARAM_DEFAULTS_VER}
@@ -374,13 +383,20 @@ else
 		param save
 		reboot
 	fi
-
+```
+- 启动蜂鸣器驱动`tone_alarm`
+```
 	#
 	# Start the tone_alarm driver.
 	# Needs to be started after the parameters are loaded (for CBRK_BUZZER).
 	#
 	tone_alarm start
-
+```
+- 加载航点数据‘
+- 如果`SYS_DM_BACKEND 1`，则从RAM中读取航点，快
+- 如果`SYS_DM_BACKEND 0`，则从SD卡中读取航点，没那么快
+- `dataman`即为`datamanager`
+```
 	#
 	# Waypoint storage.
 	# REBOOTWORK this needs to start in parallel.
@@ -395,17 +411,28 @@ else
 			dataman start
 		fi
 	fi
-
+```
+- 启动事件发送器
+- 外设 (Hardware) -> 驱动程序 (Driver) -> uORB (内部消息) -> send_event (广播员) -> MAVLink (QGC 弹窗) / 蜂鸣器 (滴滴响)
+```
 	#
 	# Start the socket communication send_event handler.
 	#
 	send_event start
-
+```
+- 启动负载监控器
+- `cpuload`
+- 每隔一段时间检查一下`CPU、RAM`的占用率
+```
 	#
 	# Start the resource load monitor.
 	#
 	load_mon start
-
+```
+- 启动状态指示灯
+- `rgbled`通常指板载的PWM控制的LED
+- 剩下的为特定I2C LED驱动芯片型号
+```
 	#
 	# Start system state indicator.
 	#
@@ -413,7 +440,11 @@ else
 	rgbled_ncp5623c start -X -q
 	rgbled_lp5562 start -X -q
 	rgbled_is31fl3195 start -X -q
-
+```
+- 加载用户自定义配置
+- 允许在不重新编译固件的情况下，通过 SD 卡里的文件来修改飞控的启动行为
+- 由这句`set FCONFIG /fs/microsd/etc/config.txt`设置了该文件
+```
 	#
 	# Override parameters from user configuration file.
 	#
@@ -422,7 +453,12 @@ else
 		echo "Custom: ${FCONFIG}"
 		. $FCONFIG
 	fi
+```
+- 启动传感器系统
+- 通过判断`SYS_HITL`来区分是在进行HITL还是真实飞行
+- 如果`SYS_HITL 0`，则为HITL仿真环境，意味着飞控不再读取真实的陀螺仪/加速度计、GPS数据，而是准备接收来自电脑（仿真器）发过来的“假数据”，这里启动的传感器都是模拟的传感器
 
+```
 
 	#
 	# Sensors System (start before Commander so Preflight checks are properly run).
@@ -443,7 +479,14 @@ else
 			sensor_gps_sim start
 			sensor_agp_sim start
 		fi
-
+```
+- 如果`SYS_HITL 1`，则为真实环境
+- 先加载板载传感器配置，告诉系统传感器都在什么总线上
+- 第二步加载通用传感器脚本，初始化一些标准的驱动逻辑
+- 第三步启动电池监控，如果`BAT1_SOURCE 2`，则启动 esc_battery 驱动，从数字电调读取电压电流；如果`BAT1_SOURCE 1`，那么就启动`battery_status`。这是最常见的模拟电压电流计（ADC）驱动，也就是我们平时用的那种电源模块
+- 第四步正式启动传感器，前面只是加载驱动，现在开始启动他们。
+- 启动后台进程，开始读取所有传感器的数据，进行滤波、校准，然后发布到 uORB 总线上给姿态解算模块使用
+```
 	else
 		#
 		# board sensors: rc.sensors
@@ -470,7 +513,9 @@ else
 
 		sensors start
 	fi
+```
 
+```
 	#
 	# state estimator selection
 	#
@@ -488,7 +533,9 @@ else
 	then
 		attitude_estimator_q start
 	fi
+```
 
+```
 	#
 	# px4io
 	#
@@ -524,14 +571,18 @@ else
 			fi
 		fi
 	fi
+```
 
+```
 	# Heater driver for temperature regulated IMUs.
 	# The heater needs to start after px4io.
 	if param compare -s SENS_EN_THERMAL 1
 	then
 		heater start
 	fi
+```
 
+```
 
 	#
 	# RC update (map raw RC input to calibrate manual control)
@@ -539,7 +590,9 @@ else
 	#
 	rc_update start
 	manual_control start
+```
 
+```
 	# Start camera trigger, capture and PPS before pwm_out as they might access
 	# pwm pins
 	if param greater -s TRIG_MODE 0
@@ -565,7 +618,9 @@ else
 			camera_capture on
 		fi
 	fi
+```
 
+```
 	#
 	# Commander
 	#
@@ -584,18 +639,24 @@ else
 		dshot start
 		pwm_out start
 	fi
+```
 
+```
 	#
 	# Configure vehicle type specific parameters.
 	# Note: rc.vehicle_setup is the entry point for all vehicle type specific setup.
 	. ${R}etc/init.d/rc.vehicle_setup
+```
 
+```
 	# Pre-takeoff continuous magnetometer calibration
 	if param compare -s MBE_ENABLE 1
 	then
 		mag_bias_estimator start
 	fi
+```
 
+```
 	#
 	# Optional board mavlink streams: rc.board_mavlink
 	#
@@ -606,7 +667,9 @@ else
 		. $BOARD_RC_MAVLINK
 	fi
 	unset BOARD_RC_MAVLINK
+```
 
+```
 	#
 	# Start UART/Serial device drivers.
 	# Note: rc.serial is auto-generated from Tools/serial/generate_config.py
@@ -626,7 +689,9 @@ else
 			mavlink start -d /dev/ttyACM0
 		fi
 	fi
+```
 
+```
 	#
 	# Play the startup tune (if not disabled or there is an error)
 	#
@@ -635,12 +700,16 @@ else
 	then
 		tune_control play -t $STARTUP_TUNE
 	fi
+```
 
+```
 	#
 	# Start the navigator.
 	#
 	navigator start
+```
 
+```
 	#
 	# Start a thermal calibration if required.
 	#
@@ -650,7 +719,9 @@ else
 		. ${RC_THERMAL_CAL}
 	fi
 	unset RC_THERMAL_CAL
+```
 
+```
 	#
 	# Start gimbal to control mounts such as gimbals, disabled by default.
 	#
@@ -687,7 +758,9 @@ else
 	then
 		internal_combustion_engine_control start
 	fi
+```
 
+```
 	#
 	# Optional board supplied extras: rc.board_extras
 	#
@@ -698,7 +771,9 @@ else
 		. $BOARD_RC_EXTRAS
 	fi
 	unset BOARD_RC_EXTRAS
+```
 
+```
 	#
 	# Start any custom addons from the sdcard.
 	#
@@ -707,6 +782,9 @@ else
 		echo "Addons script: ${FEXTRAS}"
 		. $FEXTRAS
 	fi
+```
+
+```
 
 	#
 	# Start the logger.
@@ -717,7 +795,9 @@ else
 		. ${RC_LOGGING}
 	fi
 	unset RC_LOGGING
+```
 
+```
 	#
 	# Set additional parameters and env variables for selected AUTOSTART.
 	#
@@ -733,7 +813,9 @@ else
 		sh $BOARD_BOOTLOADER_UPGRADE
 	fi
 	unset BOARD_BOOTLOADER_UPGRADE
+```
 
+```
 	#
 	# Check if UAVCAN is enabled, default to it for ESCs.
 	#
