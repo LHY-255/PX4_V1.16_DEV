@@ -514,7 +514,12 @@ else
 		sensors start
 	fi
 ```
-
+- 根据参数选择并启动状态估计器
+- 飞控需要知道自己“在哪里”和“姿态如何”，这依靠估计器算法
+- PX4 提供了三种算法
+- EKF2（扩展卡尔曼滤波）--主流
+- LPE（局部位置估计器）
+- Attitude Q（Q 姿态估计器）
 ```
 	#
 	# state estimator selection
@@ -534,7 +539,12 @@ else
 		attitude_estimator_q start
 	fi
 ```
-
+- PX4IO 协处理器（IO Co-processor）的固件检查、自动更新与启动
+- 一些高级飞控采用双芯片架构，分别称为FMU(Flight Management Unit)和IO(Input/Output)
+- FMU是主芯片，负责复杂的姿态解算、导航和通讯
+- IO是协处理器专门负责输出 PWM 信号给电机、读取遥控器信号 (RC Input) 以及处理硬件安全开关（Safety Switch）
+- 小飞控可能是单芯片，主控芯片负责所有功能
+- 这段代码先判断是否由IO芯片，如果有，则检查IO芯片的固件和FMU的固件版本是否匹配，如果不匹配，FMU会刷新IO的固件，使版本匹配，最后启动IO，让其控制电机。
 ```
 	#
 	# px4io
@@ -572,7 +582,9 @@ else
 		fi
 	fi
 ```
-
+- 启动 IMU（惯性测量单元）的恒温加热驱动
+- 陀螺仪和加速度计对温度非常敏感
+- 
 ```
 	# Heater driver for temperature regulated IMUs.
 	# The heater needs to start after px4io.
@@ -581,7 +593,8 @@ else
 		heater start
 	fi
 ```
-
+- 处理遥控器（Remote Controller）输入的信号
+- 发布`manual_control_setpoint`话题
 ```
 
 	#
@@ -591,7 +604,8 @@ else
 	rc_update start
 	manual_control start
 ```
-
+- 启动相机控制、精准时间同步和转速测量
+- 在飞控分配引脚给电机之前，先检查用户是否开启了航测拍照、时间同步或转速测量功能。如果有，就先把对应的引脚锁定给这些驱动使用，避免冲突。
 ```
 	# Start camera trigger, capture and PPS before pwm_out as they might access
 	# pwm pins
@@ -619,7 +633,10 @@ else
 		fi
 	fi
 ```
-
+- 启动指挥官和动力输出
+- 让飞控开始处理飞行逻辑，并准备好控制电机
+- `SYS_HITL 0`，即为HITL仿真模式
+- `SYS_HITL 1`，即为真实飞行模式
 ```
 	#
 	# Commander
@@ -640,14 +657,19 @@ else
 		pwm_out start
 	fi
 ```
-
+- 启动飞行控制核心算法
+- 根据`VEHICLE_TYPE`启动对应的飞行控制软件模块
+- 如果是mc，它会启动`mc_att_control`（姿态控制器）、`mc_pos_control`（位置控制器）和 `mc_hover_thrust_estimator`（悬停油门估计器）
+- 如果是fw，它会启动`fw_att_control`（固定翼姿态控制）和`fw_pos_control_l1`（L1 导航算法）
 ```
 	#
 	# Configure vehicle type specific parameters.
 	# Note: rc.vehicle_setup is the entry point for all vehicle type specific setup.
 	. ${R}etc/init.d/rc.vehicle_setup
 ```
-
+- 罗盘偏差估计器
+- 启动一个不需要转圈就能自动校准罗盘的高级功能
+- 减少“罗盘受到干扰”的报错，提高航向的精准度，不需要每次飞之前都重新校准罗盘
 ```
 	# Pre-takeoff continuous magnetometer calibration
 	if param compare -s MBE_ENABLE 1
@@ -655,7 +677,8 @@ else
 		mag_bias_estimator start
 	fi
 ```
-
+- 板级专用 MAVLink 服务的自动加载
+- 有些飞控的板子上会有需要MAVLink通信的外设，通过执行`rc.board_mavlink`文件，来配置这些外设的MAVLink通信
 ```
 	#
 	# Optional board mavlink streams: rc.board_mavlink
@@ -668,17 +691,25 @@ else
 	fi
 	unset BOARD_RC_MAVLINK
 ```
-
+- 启动串口驱动
+- `rc.serial`根据在QGC中设置的参数，把飞控上的物理串口分配给对应的功能
 ```
 	#
 	# Start UART/Serial device drivers.
 	# Note: rc.serial is auto-generated from Tools/serial/generate_config.py
 	#
 	. ${R}etc/init.d/rc.serial
-
+```
+- 遥控器的输入必须在串口配置完之后启动
+- 因为先要确定哪些串口被占用了之后，用剩下的串口来扫描接收机信号，或者直接指定串口
+```
 	# Must be started after the serial config is read
 	rc_input start $RC_INPUT_ARGS
-
+```
+- 管理USB接口
+- 飞控上的USB在Nuttx系统里被识别为`ttyACM0`
+- 每次将飞控连上电脑，是启动了一个MAVLink数据流，专门用来和地面站通信
+```
 	# Manages USB interface
 	if param greater -s SYS_USB_AUTO -1
 	then
@@ -690,7 +721,10 @@ else
 		fi
 	fi
 ```
-
+- 播放开机启动音效
+- 如果启动失败，播放error音效
+- `CBRK_BUZZER 782090`当把这个参数设为这个值时，禁用蜂鸣器
+- 如果是报错音，会无视静音设置强制播放
 ```
 	#
 	# Play the startup tune (if not disabled or there is an error)
@@ -701,14 +735,16 @@ else
 		tune_control play -t $STARTUP_TUNE
 	fi
 ```
-
+- 启动导航模块
+- Commander -> Navigator -> Position Controller
 ```
 	#
 	# Start the navigator.
 	#
 	navigator start
 ```
-
+- 检查并运行温度校准
+- 只有在在QGC中修改参数才能使用该功能
 ```
 	#
 	# Start a thermal calibration if required.
@@ -720,7 +756,7 @@ else
 	fi
 	unset RC_THERMAL_CAL
 ```
-
+- 启动云台驱动
 ```
 	#
 	# Start gimbal to control mounts such as gimbals, disabled by default.
@@ -729,37 +765,66 @@ else
 	then
 		gimbal start
 	fi
-
+```
+- 黑羊遥测
+- 老技术
+```
 	# Blacksheep telemetry
 	if param compare -s TEL_BST_EN 1
 	then
 		bst start -X
 	fi
-
+```
+- 重要!
+- 陀螺仪 FFT 频谱分析
+- 在飞行中实时分析陀螺仪数据里的频率
+- 出来的频率数据会直接喂给动态陷波滤波器，滤掉噪声，减少电机发热等
+```
 	if param compare -s IMU_GYRO_FFT_EN 1
 	then
 		gyro_fft start
 	fi
-
+```
+- 陀螺仪在线校准
+- 启动运行时陀螺仪偏置校准
+- 这不同于在地面站做的静态校准。这是一个在某些特定条件下运行的辅助校准逻辑，用于在长时间运行中修正漂移
+```
 	if param compare -s IMU_GYRO_CAL_EN 1
 	then
 		gyro_calibration start
 	fi
-
+```
+- 检查PX4Flow 光流传感器
+- 启动老款的 PX4Flow 光流模块驱动
+- 用于室内无 GPS 环境下的定位 
+```
 	# Check for px4flow sensor
 	if param compare -s SENS_EN_PX4FLOW 1
 	then
 		px4flow start -X &
 	fi
-
+```
+- 载荷投送
+- 启动抛投器/夹爪控制模块
+- 负责控制舵机打开钩子，或者控制磁铁断电扔下包裹
+```
 	payload_deliverer start
-
+```
+- 内燃机控制
+- 启动油动发动机控制逻辑
+- 用于油动无人机
+```
 	if param compare -s ICE_EN 1
 	then
 		internal_combustion_engine_control start
 	fi
 ```
-
+- 可选的板载附加组件
+- 用于处理既不是传感器，也不是MAVLink通信的外设
+- 比如说接一个OLED屏幕等等
+- `rc.board_extras`扩展脚本
+- 修改该PX4源码，需要重新编译和烧录
+- 优点：稳定
 ```
 	#
 	# Optional board supplied extras: rc.board_extras
@@ -772,7 +837,14 @@ else
 	fi
 	unset BOARD_RC_EXTRAS
 ```
-
+- 加载SD卡上的自定义扩展脚本
+- 启动那些官方固件里没有、但是自己写在 SD 卡里的程序
+- 和`config.txt`有点区别
+- 如果有扩展的外设，建议写在这个文件中，而不是上面的`rc.board_extras`
+- 不需要重新编译，从SD卡中启动
+- Nuttx Shell脚本，和rcS类似
+- 缺点：SD故障会丢失
+- 除非是很冷门的外设，一般都不需要写这个脚本，而是在QGC里面调参数来开启或者关闭外设
 ```
 	#
 	# Start any custom addons from the sdcard.
@@ -783,7 +855,8 @@ else
 		. $FEXTRAS
 	fi
 ```
-
+- 启动日志系统
+- "行车记录仪"
 ```
 
 	#
@@ -796,7 +869,9 @@ else
 	fi
 	unset RC_LOGGING
 ```
-
+- 这里也是机架配置
+- 配置所有机架通用的配置
+- 这些通用配置写在另外的文件里，而不是在每个机架文件里重复写
 ```
 	#
 	# Set additional parameters and env variables for selected AUTOSTART.
@@ -806,7 +881,11 @@ else
 		. ${R}etc/init.d/rc.autostart.post
 	fi
 
-
+```
+- Bootloader 自动升级机制
+- 检查当前的 PX4 固件里是否打包了新版本的 Bootloader，如果有就运行升级脚本来升级Bootloader
+- Bootloader功能：检测USB有没有插着，如果有，就允许通过QGC刷入新固件；如果没有，就启动 PX4 固件
+```
 	set BOARD_BOOTLOADER_UPGRADE ${R}etc/init.d/rc.board_bootloader_upgrade
 	if [ -f $BOARD_BOOTLOADER_UPGRADE ]
 	then
@@ -814,7 +893,12 @@ else
 	fi
 	unset BOARD_BOOTLOADER_UPGRADE
 ```
-
+- 启动CAN总线
+- 下面这两个二选一
+- UAVCAN：旧版 UAVCAN v0
+- Cyphal：新版 UAVCAN v1
+- 是否开启Zenoh
+- Zenoh ：网络协议，主要用于机器人领域（ROS 2）。它不仅仅是连电调的，更多是用来连接机载电脑、进行高吞吐量的云端通讯或者边缘计算通讯。它是独立的。不管你用不用 CAN，只要你想用 Zenoh 连网，它就会启动
 ```
 	#
 	# Check if UAVCAN is enabled, default to it for ESCs.
@@ -842,4 +926,5 @@ else
 #
 fi
 ```
+- 启动完成！
 
