@@ -956,3 +956,8 @@ fi
 - mavlink 模块从串口收到 COMMAND_LONG (比如起飞指令)
 - 解析后，将其转换为 uORB 的 vehicle_command 消息并发布
 - commander 模块订阅到该指令并执行
+
+# 四.飞控算法
+
+# 五.感知导航
+
