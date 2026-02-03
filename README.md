@@ -930,5 +930,29 @@ fi
 
 
 # 三.通信协议
+- PX4内部通过uORB进行通信
+- PX4和外界通过MAVLikn进行通信
+## 1.uORB
+- uORB 是 PX4 内部的异步消息传输机制（IPC，进程间通信）
+- 传感器驱动只管发数据，不需要知道谁在用数据
+- 工作方式：布/订阅模式 (Publish / Subscribe)
+- Topic (话题)：从本质上讲，一个 Topic 就是一个结构体（Struct），定义在 .msg 文件中（例如 vehicle_attitude.msg）
+- Node (节点)：任何一个后台进程（module）都可以是发布者（Advertiser）或订阅者（Subscriber）。
 
-##
+## 2.MAVLink
+- MAVLink 是一种轻量级的通信协议，用于飞控与外部世界（地面站 QGC、机载电脑、OSD、数传）进行交互。
+- 物理层：通常运行在 串口 (UART/Serial) 或 UDP/TCP 网络上。
+- 逻辑层：它定义了一套消息 ID 和 Payload 格式。
+- 飞控内部只认 uORB，外部只认 MAVLink。它们之间通过 mavlink 模块 进行转换
+- ---
+- 举例：
+- ---
+- 飞控 -> 地面站 :
+- mavlink 模块订阅 uORB 的 vehicle_attitude
+- 收到更新后，打包成 MAVLink 的 ATTITUDE 消息包
+- 通过串口发送出去
+- ---
+- 地面站 -> 飞控 ：
+- mavlink 模块从串口收到 COMMAND_LONG (比如起飞指令)
+- 解析后，将其转换为 uORB 的 vehicle_command 消息并发布
+- commander 模块订阅到该指令并执行
