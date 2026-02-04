@@ -947,17 +947,90 @@ fi
 - ---
 - 举例：
 - ---
-- 飞控 -> 地面站 :
+- 飞控 $\rightarrow$ 地面站 :
 - mavlink 模块订阅 uORB 的 vehicle_attitude
 - 收到更新后，打包成 MAVLink 的 ATTITUDE 消息包
 - 通过串口发送出去
 - ---
-- 地面站 -> 飞控 ：
+- 地面站 $\rightarrow$ 飞控 ：
 - mavlink 模块从串口收到 COMMAND_LONG (比如起飞指令)
 - 解析后，将其转换为 uORB 的 vehicle_command 消息并发布
 - commander 模块订阅到该指令并执行
 
 # 四.飞控算法
+- PX4 的控制架构是一个串级 PID（Cascaded PID） 系统
+- 输入:RC或者导航路径点
+- 位置控制(Outer Loop):输入期望位置 `(x,y,z)` $\rightarrow$ 输出期望速度 $\rightarrow$ 输出期望加速度 $\rightarrow$ 期望姿态 (Attitude Setpoint)和期望推力
+- 姿态控制(Middle Loop):输入期望姿态 (四元数) $\rightarrow$ 与当前姿态 (EKF) 比较 $\rightarrow$ 期望角速度 (Rate Setpoint)
+- 角速度控制(Inner Loop):输入期望角速度 $\rightarrow$ 与陀螺仪数据比较 (PID) $\rightarrow$ 期望力矩 (Torque Setpoint)
+- 控制分配 (Control Allocation):输入期望力矩/推力 $\rightarrow$ 根据机架几何形状 (Mixer) $\rightarrow$ 电机/舵机 PWM 值
+- 从内环到外环分析
+- 以MC为例
+## 1.角速度控制
+- 代码位置 `PX4-Autopilot/src/modules/mc_rate_control`
+### (1)MC角速度环控制参数
+- 位置：`PX4-Autopilot/src/modules/mc_rate_control/mc_rate_control_params.c`
+- 
+```
 
+```
+### (2)MC角速度控制
+- 位置：`PX4-Autopilot/src/modules/mc_rate_control/MulticopterRateControl.cpp`
+- `init()`:向调度器注册中断：只要陀螺仪更新数据，就立刻触发`Run()`函数
+```
+MulticopterRateControl::init()
+{
+	if (!_vehicle_angular_velocity_sub.registerCallback()) {
+		PX4_ERR("callback registration failed");
+		return false;
+	}
+
+	return true;
+}
+```
+- `parameters_updated()`:
+- 从参数系统中读取P,I,D,K,前馈FF，积分限幅等数值
+- `_rate_control.setPidGains`,`_rate_control.setIntegratorLimit`,`_rate_controlsetFeedForwardGain`使用这些参数
+- 后面还设置了Acro模式的手感参数
+```
+MulticopterRateControl::parameters_updated()
+{
+	// rate control parameters
+	// The controller gain K is used to convert the parallel (P + I/s + sD) form
+	// to the ideal (K * [1 + 1/sTi + sTd]) form
+	const Vector3f rate_k = Vector3f(_param_mc_rollrate_k.get(), _param_mc_pitchrate_k.get(), _param_mc_yawrate_k.get());
+
+	_rate_control.setPidGains(
+		rate_k.emult(Vector3f(_param_mc_rollrate_p.get(), _param_mc_pitchrate_p.get(), _param_mc_yawrate_p.get())),
+		rate_k.emult(Vector3f(_param_mc_rollrate_i.get(), _param_mc_pitchrate_i.get(), _param_mc_yawrate_i.get())),
+		rate_k.emult(Vector3f(_param_mc_rollrate_d.get(), _param_mc_pitchrate_d.get(), _param_mc_yawrate_d.get())));
+
+	_rate_control.setIntegratorLimit(
+		Vector3f(_param_mc_rr_int_lim.get(), _param_mc_pr_int_lim.get(), _param_mc_yr_int_lim.get()));
+
+	_rate_control.setFeedForwardGain(
+		Vector3f(_param_mc_rollrate_ff.get(), _param_mc_pitchrate_ff.get(), _param_mc_yawrate_ff.get()));
+
+
+	// manual rate control acro mode rate limits
+	_acro_rate_max = Vector3f(radians(_param_mc_acro_r_max.get()), radians(_param_mc_acro_p_max.get()),
+				  radians(_param_mc_acro_y_max.get()));
+
+	_output_lpf_yaw.setCutoffFreq(_param_mc_yaw_tq_cutoff.get());
+}
+```
+- `Run()`:核心函数，陀螺仪中断触发的函数
+- 
+```
+
+```
+- ``
+```
+
+```
+- ``
+```
+
+```
 # 五.感知导航
 
