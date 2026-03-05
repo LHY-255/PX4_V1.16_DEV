@@ -11,31 +11,43 @@ udp_onboard_gimbal_port_remote=$((13280+px4_instance))
 udp_gcs_port_local=$((18570+px4_instance))
 
 # GCS link
-mavlink start -x -u $udp_gcs_port_local -r 4000000 -f
-mavlink stream -r 50 -s POSITION_TARGET_LOCAL_NED -u $udp_gcs_port_local
-mavlink stream -r 50 -s LOCAL_POSITION_NED -u $udp_gcs_port_local
-mavlink stream -r 50 -s GLOBAL_POSITION_INT -u $udp_gcs_port_local
-mavlink stream -r 50 -s ATTITUDE -u $udp_gcs_port_local
-mavlink stream -r 50 -s ATTITUDE_QUATERNION -u $udp_gcs_port_local
-mavlink stream -r 50 -s ATTITUDE_TARGET -u $udp_gcs_port_local
-mavlink stream -r 50 -s SERVO_OUTPUT_RAW_0 -u $udp_gcs_port_local
-mavlink stream -r 20 -s RC_CHANNELS -u $udp_gcs_port_local
-mavlink stream -r 10 -s OPTICAL_FLOW_RAD -u $udp_gcs_port_local
+# 单机17.3 KB/s
+mavlink start -x -u $udp_gcs_port_local -r 4000000 -f 				# GCS链路（PX4 ↔ 地面站），4,000,000 B/s，启用FTP与转发
+mavlink stream -r 50 -s POSITION_TARGET_LOCAL_NED -u $udp_gcs_port_local 	# 50Hz，局部NED期望目标
+mavlink stream -r 50 -s LOCAL_POSITION_NED -u $udp_gcs_port_local 		# 50Hz，局部NED位置速度
+mavlink stream -r 50 -s GLOBAL_POSITION_INT -u $udp_gcs_port_local 		# 50Hz，全局位置与地速
+mavlink stream -r 50 -s ATTITUDE -u $udp_gcs_port_local 			# 50Hz，欧拉姿态与角速度
+mavlink stream -r 50 -s ATTITUDE_QUATERNION -u $udp_gcs_port_local 		# 50Hz，四元数姿态与角速度
+mavlink stream -r 50 -s ATTITUDE_TARGET -u $udp_gcs_port_local 			# 50Hz，姿态控制目标与推力
+mavlink stream -r 50 -s SERVO_OUTPUT_RAW_0 -u $udp_gcs_port_local 		# 50Hz，执行器PWM输出
+mavlink stream -r 20 -s RC_CHANNELS -u $udp_gcs_port_local 			# 20Hz，遥控通道输入状态
+mavlink stream -r 10 -s OPTICAL_FLOW_RAD -u $udp_gcs_port_local 		# 10Hz，光流与积分角速度
+
+# # 单机0.2 KB/s
+# # 移除 -x(FTP) 和 -f(全局转发)，改用 custom 模式，最大速率限制为 4 MB/s
+# mavlink start -u $udp_gcs_port_local -r 4000000 -m custom
+
+# #  1Hz 核心位置与状态流
+# mavlink stream -r 1 -s HEARTBEAT -u $udp_gcs_port_local
+# mavlink stream -r 1 -s GLOBAL_POSITION_INT -u $udp_gcs_port_local
+# mavlink stream -r 1 -s SYS_STATUS -u $udp_gcs_port_local
+# mavlink stream -r 1 -s BATTERY_STATUS -u $udp_gcs_port_local
+# mavlink stream -r 1 -s EXTENDED_SYS_STATE -u $udp_gcs_port_local
 
 # API/Offboard link
-mavlink start -x -u $udp_offboard_port_local -r 4000000 -f -m onboard -o $udp_offboard_port_remote
+mavlink start -x -u $udp_offboard_port_local -r 4000000 -f -m onboard -o $udp_offboard_port_remote 		# Offboard链路（PX4 ↔ 外部控制程序），4,000,000 B/s，onboard模式
 
 # Onboard link to camera
-mavlink start -x -u $udp_onboard_payload_port_local -r 4000 -f -m onboard -o $udp_onboard_payload_port_remote
+mavlink start -x -u $udp_onboard_payload_port_local -r 4000 -f -m onboard -o $udp_onboard_payload_port_remote 	# 相机链路（PX4 ↔ 相机），4,000 B/s，onboard模式
 
 # Onboard link to gimbal
-mavlink start -x -u $udp_onboard_gimbal_port_local -r 400000 -f -m gimbal -o $udp_onboard_gimbal_port_remote
+mavlink start -x -u $udp_onboard_gimbal_port_local -r 400000 -f -m gimbal -o $udp_onboard_gimbal_port_remote 	# 云台链路（PX4 ↔ 云台），400,000 B/s，gimbal模式
 
 # To display for SIH sitl
 if [ "$PX4_SIMULATOR" = "sihsim" ]; then
 	udp_sihsim_port_local=$((19450+px4_instance))
 	udp_sihsim_port_remote=$((19410+px4_instance))
-	mavlink start -x -u $udp_sihsim_port_local -r 400000 -m custom -o $udp_sihsim_port_remote
-	mavlink stream -r 200 -s HIL_ACTUATOR_CONTROLS -u  $udp_sihsim_port_local
-	mavlink stream -r 25 -s HIL_STATE_QUATERNION -u  $udp_sihsim_port_local
+	mavlink start -x -u $udp_sihsim_port_local -r 400000 -m custom -o $udp_sihsim_port_remote 	# SIH/HIL链路（PX4 ↔ SIH/HIL），400,000 B/s，custom模式
+	mavlink stream -r 200 -s HIL_ACTUATOR_CONTROLS -u  $udp_sihsim_port_local 			# 200Hz，HIL执行器控制量
+	mavlink stream -r 25 -s HIL_STATE_QUATERNION -u  $udp_sihsim_port_local 			# 25Hz，HIL飞行器状态
 fi
