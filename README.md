@@ -975,7 +975,7 @@ fi
 - 积分限幅：用于防止积分饱和（Windup），也就是防止无人机在受到持续外力时，积分项不断累加导致失控。
 - 如果调整好了PID的参数，可以直接写入默认的文件中，这样编译后的固件就拥有了最优的PID参数，烧录给同类型的飞机可以直接使用
 ### (2)MC角速度环控制
-- 位置：`PX4-Autopilot/src/modules/mc_rate_control/MulticopterRateControl.cpp`
+- 代码位置：`PX4-Autopilot/src/modules/mc_rate_control/MulticopterRateControl.cpp`
 - `init()`:向调度器注册中断：只要陀螺仪更新数据，就立刻触发`Run()`函数
 ```
 bool MulticopterRateControl::init()
@@ -1035,9 +1035,87 @@ void MulticopterRateControl::parameters_updated()
 - 代码位置：`PX4-Autopilot/src/modules/mc_att_control/mc_att_control_params.c`
 - 只有P（比例增益）
 - 姿态环是一个纯比例控制器
-- 
+- `MC_ROLLRATE_MAX`、`MC_PITCHRATE_MAX`、`MC_YAWRATE_MAX`，这三个参数限定了姿态环能够向角速度环输出的最大期望角速度
+- `MC_YAW_WEIGHT`，**偏航权重**，这个参数决定了偏航控制的重要性程度，默认为0.4，也就是说偏航的重要性只有横滚和俯仰的40%，这是由于偏航控制的原理决定的，一般不调整这个参数
+- `MC_MAN_TILT_TAU`，用来控制手动模式下摇杆输入的低通滤波时间常数，让摇杆的输入变得平滑，而不是一动摇杆就瞬间给出摇杆对应的最大出力，而是平滑的达到摇杆对应的出力。摇杆的跟手程度
+### (2)MC角速度环控制
+- 代码位置：`PX4-Autopilot/src/modules/mc_att_control/mc_att_control_main.cpp`
+- `init()`
+- 调用了`_vehicle_attitude_sub.registerCallback()`，只要EKF算出了新的机体实际姿态，就会触发这个模块的回调，唤醒`Run()`函数开始工作
 ```
+bool MulticopterAttitudeControl::init()
+{
+	if (!_vehicle_attitude_sub.registerCallback()) {
+		PX4_ERR("callback registration failed");
+		return false;
+	}
 
+	return true;
+}
 ```
+- `parameters_updated()`
+- 姿态控制模块刚启动时被调用一次， 之后每次在QGC中调整了参数，都会被调用一次
+- 把P增益和偏航权重喂给姿态控制算法
+- 把角度转换成弧度，再喂给姿态控制器的输出限幅
+- `_hover_thrust_estimate`是PX4中的一个高级功能叫做**悬停推力估计器(HTE)**，它能在飞行中自动学习并计算出当前飞机需要多少油门才能悬停，但是飞机刚上电还没有起飞或者估计器失效的时候，`_hover_thrust_estimate`是一个无效值，这时就把悬停推力设置为在QGC里手动填写的静态参数`MPC_THR_HOVER`
+- `MPC_MAN_TILT_MAX`这个参数决定了在**自稳模式**下，当把遥控器摇杆推到死角时，飞机最多能倾斜多少度，这里其实是一个限幅，防止满杆飞机翻车
+```
+void MulticopterAttitudeControl::parameters_updated()
+{
+	// Store some of the parameters in a more convenient way & precompute often-used values
+	_attitude_control.setProportionalGain(Vector3f(_param_mc_roll_p.get(), _param_mc_pitch_p.get(), _param_mc_yaw_p.get()),
+					      _param_mc_yaw_weight.get());
+
+	// angular rate limits
+	using math::radians;
+	_attitude_control.setRateLimit(Vector3f(radians(_param_mc_rollrate_max.get()), radians(_param_mc_pitchrate_max.get()),
+						radians(_param_mc_yawrate_max.get())));
+
+	// Update from hover thrust parameter if there's no valid estimate in use
+	if (!PX4_ISFINITE(_hover_thrust_estimate)) {
+		_hover_thrust_slew_rate.setForcedValue(_param_mpc_thr_hover.get());
+	}
+
+	_man_tilt_max = math::radians(_param_mpc_man_tilt_max.get());
+}
+```
+- `throttle_curve(float throttle_stick_input)`油门曲线
+- 把摇杆的动作，转换成期望推力大小
+- 通过在QGC中设置`MPC_THR_CURVE`参数，可以在三种模式间切换
+- 1为没有重新缩放的纯线性映射，直接把摇杆的[-1,1]映射到[最低怠速，最大推力]之间，这个模式不智能，因为摇杆的中心位置对应的油门不是悬停所需的油门，需要精准的控制油门才能悬停。
+- 2为静态悬停推力对齐，此时摇杆中心位置就是在QGC中设置的`MPC_THR_HOVER`即悬停推力，如果这个参数设置得当，摇杆在中心位置时就可以悬停，操作难度低，但是不灵活，如果飞机的重量改变了，就得重新改变悬停推力参数。
+- 0为动态悬停推力对齐，是在2的模式上的升级，去掉了它的缺点。EKF/HTE算法会一直在后台计算需要多少推力才能悬停，然后把它映射到摇杆的中间位置，不管重量是否变化、电池电压是否下降，只要摇杆归中，飞机永远都可以定高悬停
+- 应当注意的是，摇杆在中间不代表推力就是百分之五十。
+- 最后返回的值为计算出的推力和`_manual_throttle_maximum`中的最小值，`_manual_throttle_maximum`是对最大推力的一个限制，这里默认设置为`0.5`,也就是说2s后才会解锁百分之百的推力，防止你摇杆没归零时，一解锁飞机就冲出去。
+- 不管是哪一种油门映射方式，飞机在地面上时，摇杆都要拉到最底下
+```
+float MulticopterAttitudeControl::throttle_curve(float throttle_stick_input)
+{
+	float thrust = 0.f;
+
+	// throttle_stick_input is in range [-1, 1]
+	switch (_param_mpc_thr_curve.get()) {
+	case 1: // no rescaling
+		thrust = math::interpolate(throttle_stick_input, -1.f, 1.f,
+					   _manual_throttle_minimum.getState(), _param_mpc_thr_max.get());
+		break;
+
+	case 2: // rescale to hover thrust param at 0 stick input
+		thrust = math::interpolateNXY(throttle_stick_input,
+		{-1.f, 0.f, 1.f},
+		{_manual_throttle_minimum.getState(), _param_mpc_thr_hover.get(), _param_mpc_thr_max.get()});
+		break;
+
+	default: // 0 or other: rescale to HTE value
+		thrust = math::interpolateNXY(throttle_stick_input,
+		{-1.f, 0.f, 1.f},
+		{_manual_throttle_minimum.getState(), _hover_thrust_slew_rate.getState(), _param_mpc_thr_max.get()});
+		break;
+	}
+
+	return math::min(thrust, _manual_throttle_maximum.getState());
+}
+```
+  
 # 五.感知导航
 
