@@ -970,15 +970,15 @@ fi
 - 代码位置 `PX4-Autopilot/src/modules/mc_rate_control`
 ### (1)MC角速度环控制参数
 - 位置：`PX4-Autopilot/src/modules/mc_rate_control/mc_rate_control_params.c`
-- 
-```
-
-```
-### (2)MC角速度控制
+- 配置了所有的内环控制参数的默认值
+- Roll、Pitch、Yaw的独立PID参数：包括比例增益P、积分增益I、微分增益D、前馈增益FF。
+- 积分限幅：用于防止积分饱和（Windup），也就是防止无人机在受到持续外力时，积分项不断累加导致失控。
+- 如果调整好了PID的参数，可以直接写入默认的文件中，这样编译后的固件就拥有了最优的PID参数，烧录给同类型的飞机可以直接使用
+### (2)MC角速度环控制
 - 位置：`PX4-Autopilot/src/modules/mc_rate_control/MulticopterRateControl.cpp`
 - `init()`:向调度器注册中断：只要陀螺仪更新数据，就立刻触发`Run()`函数
 ```
-MulticopterRateControl::init()
+bool MulticopterRateControl::init()
 {
 	if (!_vehicle_angular_velocity_sub.registerCallback()) {
 		PX4_ERR("callback registration failed");
@@ -989,11 +989,11 @@ MulticopterRateControl::init()
 }
 ```
 - `parameters_updated()`:
-- 从参数系统中读取P,I,D,K,前馈FF，积分限幅等数值
-- `_rate_control.setPidGains`,`_rate_control.setIntegratorLimit`,`_rate_controlsetFeedForwardGain`使用这些参数
+- 获取并且设置PID增益、积分限幅参数、前向反馈增益
 - 后面还设置了Acro模式的手感参数
+- 这里获取的这些参数一开始是默认参数，也就是控制参数文件中设置的参数，如果在QGC中修改，也会获得最新的参数
 ```
-MulticopterRateControl::parameters_updated()
+void MulticopterRateControl::parameters_updated()
 {
 	// rate control parameters
 	// The controller gain K is used to convert the parallel (P + I/s + sD) form
@@ -1019,8 +1019,16 @@ MulticopterRateControl::parameters_updated()
 	_output_lpf_yaw.setCutoffFreq(_param_mc_yaw_tq_cutoff.get());
 }
 ```
-- `Run()`:核心函数，陀螺仪中断触发的函数
-- 
+- `Run()`：角速度环核心函数。这是一个基于事件驱动的函数，每次底层的陀螺仪更新数据后，都会立刻触发并执行该函数。
+- 确定期望角速度来源 (Setpoint Routing)：
+  - 手动/特技模式 (ACRO)：此时姿态控制器被旁路（不工作）。内环直接读取遥控器的摇杆输入，经过指数曲线平滑后，自行计算并发布期望角速度。期望推力也直接来自遥控器油门。
+  - 自动/常规模式：姿态控制器正常工作并发布期望角速度。角速度环只负责**订阅**上一级的期望角速度；期望推力则是由最外层的位置控制环计算后，一路透传过来的。
+- 抗积分饱和保护 (Anti-Windup)：在进行 PID 计算前，会读取下一级控制分配器（电机）的饱和状态。如果某个轴的电机已经达到物理输出极限，立刻停止该方向的 PID 积分累加，防止由于积分风卷导致的严重超调或炸机。 
+- 核心 PID 解算：将当前实际角速度、期望角速度、角加速度和时间步长$dt$传入PID底层数学模型，计算出维持姿态所需的期望三轴扭矩 (Torque Setpoint)。
+- 信号后处理与滤波：
+  - Yaw 轴低通滤波：由于偏航是通过电机的反扭矩控制的，电机加减速不够线性，极易产生高频机械振荡。因此专门对算出的`torque_setpoint(2)`(Yaw轴) 加入了低通滤波，使偏航指令更加平滑。
+  - 电池电压补偿 (可选)：根据电池当前电压的跌落比例，动态放大推力和扭矩指令，确保满电和低电量时的飞行手感/响应一致。
+- 最终输出：打上精确的时间戳，将最终算好的期望推力和期望扭矩发布到uORB总线上，交由下游的控制分配模块 (Mixer) 转换为具体的电机PWM信号。
 ```
 
 ```
