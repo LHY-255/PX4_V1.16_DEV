@@ -976,7 +976,7 @@ fi
 - 如果调整好了PID的参数，可以直接写入默认的文件中，这样编译后的固件就拥有了最优的PID参数，烧录给同类型的飞机可以直接使用
 ### (2)MC角速度环控制
 - 代码位置：`PX4-Autopilot/src/modules/mc_rate_control/MulticopterRateControl.cpp`
-- `init()`:向调度器注册中断：只要陀螺仪更新数据，就立刻触发`Run()`函数
+- ```init()```:向调度器注册中断：只要陀螺仪更新数据，就立刻触发`Run()`函数
 ```
 bool MulticopterRateControl::init()
 {
@@ -988,7 +988,7 @@ bool MulticopterRateControl::init()
 	return true;
 }
 ```
-- `parameters_updated()`:
+- ```parameters_updated()```:
 - 获取并且设置PID增益、积分限幅参数、前向反馈增益
 - 后面还设置了Acro模式的手感参数
 - 这里获取的这些参数一开始是默认参数，也就是控制参数文件中设置的参数，如果在QGC中修改，也会获得最新的参数
@@ -1031,17 +1031,17 @@ void MulticopterRateControl::parameters_updated()
 - 最终输出：打上精确的时间戳，将最终算好的期望推力和期望扭矩发布到uORB总线上，交由下游的控制分配模块 (Mixer) 转换为具体的电机PWM信号。
 ## 2.姿态控制
 - 代码位置：`PX4-Autopilot/src/modules/mc_att_control`
-### (1)MC角速度环控制参数
+### (1)MC姿态环控制参数
 - 代码位置：`PX4-Autopilot/src/modules/mc_att_control/mc_att_control_params.c`
 - 只有P（比例增益）
 - 姿态环是一个纯比例控制器
 - `MC_ROLLRATE_MAX`、`MC_PITCHRATE_MAX`、`MC_YAWRATE_MAX`，这三个参数限定了姿态环能够向角速度环输出的最大期望角速度
 - `MC_YAW_WEIGHT`，**偏航权重**，这个参数决定了偏航控制的重要性程度，默认为0.4，也就是说偏航的重要性只有横滚和俯仰的40%，这是由于偏航控制的原理决定的，一般不调整这个参数
 - `MC_MAN_TILT_TAU`，用来控制手动模式下摇杆输入的低通滤波时间常数，让摇杆的输入变得平滑，而不是一动摇杆就瞬间给出摇杆对应的最大出力，而是平滑的达到摇杆对应的出力。摇杆的跟手程度
-### (2)MC角速度环控制
+### (2)MC姿态环控制
 - 代码位置：`PX4-Autopilot/src/modules/mc_att_control/mc_att_control_main.cpp`
-- `init()`
-- 调用了`_vehicle_attitude_sub.registerCallback()`，只要EKF算出了新的机体实际姿态，就会触发这个模块的回调，唤醒`Run()`函数开始工作
+- ```init()```
+- 调用了```_vehicle_attitude_sub.registerCallback()```，只要EKF算出了新的机体实际姿态，就会触发这个模块的回调，唤醒`Run()`函数开始工作
 ```
 bool MulticopterAttitudeControl::init()
 {
@@ -1053,7 +1053,7 @@ bool MulticopterAttitudeControl::init()
 	return true;
 }
 ```
-- `parameters_updated()`
+- ```parameters_updated()```
 - 姿态控制模块刚启动时被调用一次， 之后每次在QGC中调整了参数，都会被调用一次
 - 把P增益和偏航权重喂给姿态控制算法
 - 把角度转换成弧度，再喂给姿态控制器的输出限幅
@@ -1079,7 +1079,7 @@ void MulticopterAttitudeControl::parameters_updated()
 	_man_tilt_max = math::radians(_param_mpc_man_tilt_max.get());
 }
 ```
-- `throttle_curve(float throttle_stick_input)`油门曲线
+- ```throttle_curve(float throttle_stick_input)```设置油门曲线
 - 把摇杆的动作，转换成期望推力大小
 - 通过在QGC中设置`MPC_THR_CURVE`参数，可以在三种模式间切换
 - 1为没有重新缩放的纯线性映射，直接把摇杆的[-1,1]映射到[最低怠速，最大推力]之间，这个模式不智能，因为摇杆的中心位置对应的油门不是悬停所需的油门，需要精准的控制油门才能悬停。
@@ -1087,7 +1087,7 @@ void MulticopterAttitudeControl::parameters_updated()
 - 0为动态悬停推力对齐，是在2的模式上的升级，去掉了它的缺点。EKF/HTE算法会一直在后台计算需要多少推力才能悬停，然后把它映射到摇杆的中间位置，不管重量是否变化、电池电压是否下降，只要摇杆归中，飞机永远都可以定高悬停
 - 应当注意的是，摇杆在中间不代表推力就是百分之五十。
 - 最后返回的值为计算出的推力和`_manual_throttle_maximum`中的最小值，`_manual_throttle_maximum`是对最大推力的一个限制，这里默认设置为`0.5`,也就是说2s后才会解锁百分之百的推力，防止你摇杆没归零时，一解锁飞机就冲出去。
-- 不管是哪一种油门映射方式，飞机在地面上时，摇杆都要拉到最底下
+- 不管是哪一种油门映射方式，飞机在地面上时，摇杆都要拉到最底下。
 ```
 float MulticopterAttitudeControl::throttle_curve(float throttle_stick_input)
 {
@@ -1116,6 +1116,116 @@ float MulticopterAttitudeControl::throttle_curve(float throttle_stick_input)
 	return math::min(thrust, _manual_throttle_maximum.getState());
 }
 ```
-  
+- ```generate_attitude_setpoint(const Quatf &q, float dt)```
+- 输入：
+  - `const Quatf &q`当前飞机的真实姿态(四元数)，由EKF计算出来的
+  - `float dt`距离上一次执行这个函数过去了多长时间
+- 当你在地面使用摇杆进行解锁操作时（外八或者内八），会有着巨大的偏航（YAW）打杆指令，如果飞控把这个偏航打杆指令当作真正的飞行期望，就会累计巨大的偏航误差，一旦解锁，飞机会旋转
+- 这段代码识别出你正在做“解锁手势”或者当前罗盘数据极差时，直接把期望偏航角设为 NAN（无效值）。这意味着飞控会暂时放弃偏航锁定，防止误差积累。
+```
+	// Avoid accumulating absolute yaw error with arming stick gesture
+	const bool arming_gesture = (_manual_control_setpoint.throttle < -.9f) && (_param_mc_airmode.get() != 2);
+
+	if (arming_gesture || !_heading_good_for_control) {
+		_yaw_setpoint_stabilized = NAN;
+	}
+```
+- 这一段是给摇杆的YAW轴添加一个死区（deadzone），让摇杆在中心位置时反应迟钝，在边缘位置时反应迅速
+- 死区会滤掉摇杆中心位置的抖动
+```
+	const float yaw = Eulerf(q).psi();
+	const float yaw_stick_input = math::expo_deadzone(_manual_control_setpoint.yaw, _param_mpc_yaw_expo.get(),
+				      _param_mpc_hold_dz.get());
+```
+- 根据摇杆的输入，平滑的计算出期望偏航角YAW
+```
+	_stick_yaw.generateYawSetpoint(attitude_setpoint.yaw_sp_move_rate, _yaw_setpoint_stabilized, yaw_stick_input, yaw, dt,
+				       _unaided_heading);
+```
+- 这块是做了ROLL和PITCH的圆形限幅
+- 防止两种动作同时做时，飞机的实际倾角超出最大倾角限制，导致失速
+```
+	/*
+	 * Input mapping for roll & pitch setpoints
+	 * ----------------------------------------
+	 * We control the following 2 angles:
+	 * - tilt angle, given by sqrt(roll*roll + pitch*pitch)
+	 * - the direction of the maximum tilt in the XY-plane, which also defines the direction of the motion
+	 *
+	 * This allows a simple limitation of the tilt angle, the vehicle flies towards the direction that the stick
+	 * points to, and changes of the stick input are linear.
+	 */
+	_man_roll_input_filter.setParameters(dt, _param_mc_man_tilt_tau.get());
+	_man_pitch_input_filter.setParameters(dt, _param_mc_man_tilt_tau.get());
+
+	// we want to fly towards the direction of (roll, pitch)
+	Vector2f v = Vector2f(_man_roll_input_filter.update(_manual_control_setpoint.roll * _man_tilt_max),
+			      -_man_pitch_input_filter.update(_manual_control_setpoint.pitch * _man_tilt_max));
+	float v_norm = v.norm(); // the norm of v defines the tilt angle
+
+	if (v_norm > _man_tilt_max) { // limit to the configured maximum tilt angle
+		v *= _man_tilt_max / v_norm;
+	}
+```
+- 这块是组装四元数
+- 把刚才算好的ROLL/PITCH二维向量转换成一个倾斜四元数，把偏航角转换成偏航四元数
+- 通过四元数乘法，把两部分合并成一个代表飞机整体3D期望姿态的四元数
+```
+	Quatf q_sp_rp = AxisAnglef(v(0), v(1), 0.f);
+	// Make sure there's a valid attitude quaternion with no yaw error when yaw is unlocked (NAN)
+	const float yaw_setpoint = PX4_ISFINITE(_yaw_setpoint_stabilized) ? _yaw_setpoint_stabilized : yaw;
+	// The axis angle can change the yaw as well (noticeable at higher tilt angles).
+	// This is the formula by how much the yaw changes:
+	//   let a := tilt angle, b := atan(y/x) (direction of maximum tilt)
+	//   yaw = atan(-2 * sin(b) * cos(b) * sin^2(a/2) / (1 - 2 * cos^2(b) * sin^2(a/2))).
+	const Quatf q_sp_yaw(cosf(yaw_setpoint / 2.f), 0.f, 0.f, sinf(yaw_setpoint / 2.f));
+
+	if (_vtol) {
+		// Modify the setpoints for roll and pitch such that they reflect the user's intention even
+		// if a large yaw error(yaw_sp - yaw) is present. In the presence of a yaw error constructing
+		// an attitude setpoint from the yaw setpoint will lead to unexpected attitude behaviour from
+		// the user's view as the tilt will not be aligned with the heading of the vehicle.
+
+		AttitudeControlMath::correctTiltSetpointForYawError(q_sp_rp, q, q_sp_yaw);
+	}
+
+	// Align the desired tilt with the yaw setpoint
+	Quatf q_sp = q_sp_yaw * q_sp_rp;
+
+	q_sp.copyTo(attitude_setpoint.q_d);
+```
+- 获取上面推力曲线获得的期望推力
+- 将四元数和期望推力打包，打上时间戳进行广播
+```
+	attitude_setpoint.thrust_body[2] = -throttle_curve(_manual_control_setpoint.throttle);
+
+	attitude_setpoint.timestamp = hrt_absolute_time();
+	_vehicle_attitude_setpoint_pub.publish(attitude_setpoint);
+```
+- ```Run()``` 核心函数
+- 1、检查是否在QGC中跟新了参数
+- 2、从订阅的EKF中获得当前真实姿态
+- 3、如果是手动模式，则直接从```generate_attitude_setpoin```把摇杆输入作为期望姿态。如果是定高/定点/航线模式，则从位置环获取期望姿态。
+- 4、工业容错
+- 5、用真实姿态和期望姿态计算出期望角速度
+- 6、打包发送
+## 3.位置控制
+- 代码位置：`PX4-Autopilot/src/modules/mc_pos_control`
+- `PX4-Autopilot/src/modules/mc_pos_control/GotoControl`轨迹平滑规划期
+- `PX4-Autopilot/src/modules/mc_pos_control/PositionControl`位置控制的核心数学运算库
+- `PX4-Autopilot/src/modules/mc_pos_control/Takeoff`起飞特殊工况逻辑处理
+- 其他文件都是一些参数配置文件
+### MC位置环控制
+- 代码位置：`PX4-Autopilot/src/modules/mc_pos_control/MulticopterPositionControl.cpp`
+- 这里负责处理位置控制的业务逻辑
+```set_vehicle_states(const vehicle_local_position_s*&vehicle_local_position, const float dt_s)```
+- 对垂直速度和水平速度进行陷波滤波和低通滤波
+- 通过速度的微分计算出加速度，用于前馈控制
+- ```Run()```核心逻辑
+## 4.控制分配器
+- 代码位置：`PX4/PX4-Autopilot/src/modules/control_allocator`
+- 接收由角速度环传来的期望扭矩和期望推力，通过计算得到电机转速指令，然后发给底层驱动（PWM）
+- 
+
 # 五.感知导航
 
