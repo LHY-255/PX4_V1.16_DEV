@@ -12,35 +12,38 @@ udp_gcs_port_local=$((18570+px4_instance))
 
 # GCS link
 # 单机17.3 KB/s
-mavlink start -x -u $udp_gcs_port_local -r 4000000 -f 				# GCS链路（PX4 ↔ 地面站），4,000,000 B/s，启用FTP与转发
-mavlink stream -r 50 -s POSITION_TARGET_LOCAL_NED -u $udp_gcs_port_local 	# 50Hz，局部NED期望目标
-mavlink stream -r 50 -s LOCAL_POSITION_NED -u $udp_gcs_port_local 		# 50Hz，局部NED位置速度
-mavlink stream -r 50 -s GLOBAL_POSITION_INT -u $udp_gcs_port_local 		# 50Hz，全局位置与地速
-mavlink stream -r 50 -s ATTITUDE -u $udp_gcs_port_local 			# 50Hz，欧拉姿态与角速度
-mavlink stream -r 50 -s ATTITUDE_QUATERNION -u $udp_gcs_port_local 		# 50Hz，四元数姿态与角速度
-mavlink stream -r 50 -s ATTITUDE_TARGET -u $udp_gcs_port_local 			# 50Hz，姿态控制目标与推力
-mavlink stream -r 50 -s SERVO_OUTPUT_RAW_0 -u $udp_gcs_port_local 		# 50Hz，执行器PWM输出
-mavlink stream -r 20 -s RC_CHANNELS -u $udp_gcs_port_local 			# 20Hz，遥控通道输入状态
-mavlink stream -r 10 -s OPTICAL_FLOW_RAD -u $udp_gcs_port_local 		# 10Hz，光流与积分角速度
+# mavlink start -x -u $udp_gcs_port_local -r 4000000 -f 				# GCS链路（PX4 ↔ 地面站），4,000,000 B/s，启用FTP与转发
+# mavlink stream -r 50 -s POSITION_TARGET_LOCAL_NED -u $udp_gcs_port_local 	# 50Hz，局部NED期望目标
+# mavlink stream -r 50 -s LOCAL_POSITION_NED -u $udp_gcs_port_local 		# 50Hz，局部NED位置速度
+# mavlink stream -r 50 -s GLOBAL_POSITION_INT -u $udp_gcs_port_local 		# 50Hz，全局位置与地速
+# mavlink stream -r 50 -s ATTITUDE -u $udp_gcs_port_local 			# 50Hz，欧拉姿态与角速度
+# mavlink stream -r 50 -s ATTITUDE_QUATERNION -u $udp_gcs_port_local 		# 50Hz，四元数姿态与角速度
+# mavlink stream -r 50 -s ATTITUDE_TARGET -u $udp_gcs_port_local 			# 50Hz，姿态控制目标与推力
+# mavlink stream -r 50 -s SERVO_OUTPUT_RAW_0 -u $udp_gcs_port_local 		# 50Hz，执行器PWM输出
+# mavlink stream -r 20 -s RC_CHANNELS -u $udp_gcs_port_local 			# 20Hz，遥控通道输入状态
+# mavlink stream -r 10 -s OPTICAL_FLOW_RAD -u $udp_gcs_port_local 		# 10Hz，光流与积分角速度
 
-# # 单机0.2 KB/s
-# # 移除 -x(FTP) 和 -f(全局转发)，改用 custom 模式，最大速率限制为 4 MB/s
-# mavlink start -u $udp_gcs_port_local -r 4000000 -m custom
+# 单机0.2 KB/s
+# 移除 -x(FTP) 和 -f(全局转发)，改用 custom 模式，最大速率限制为 4 MB/s
+mavlink start -u $udp_gcs_port_local -r 4000000 -m custom
 
-# #  1Hz 核心位置与状态流
-# mavlink stream -r 1 -s HEARTBEAT -u $udp_gcs_port_local
-# mavlink stream -r 1 -s GLOBAL_POSITION_INT -u $udp_gcs_port_local
-# mavlink stream -r 1 -s SYS_STATUS -u $udp_gcs_port_local
-# mavlink stream -r 1 -s BATTERY_STATUS -u $udp_gcs_port_local
-# mavlink stream -r 1 -s EXTENDED_SYS_STATE -u $udp_gcs_port_local
+#  1Hz 核心位置与状态流
+mavlink stream -r 1 -s HEARTBEAT -u $udp_gcs_port_local
+mavlink stream -r 1 -s GLOBAL_POSITION_INT -u $udp_gcs_port_local
+mavlink stream -r 1 -s SYS_STATUS -u $udp_gcs_port_local
+mavlink stream -r 1 -s BATTERY_STATUS -u $udp_gcs_port_local
+mavlink stream -r 1 -s EXTENDED_SYS_STATE -u $udp_gcs_port_local
 
-# API/Offboard link
+# 下面三个链路是在无人机内部使用的，不需要转发到地面站
+# 不过需要注意Offboard link开启了转发（-f），会将Offboard链路的数据转发到GCS链路，后续需要考虑压缩这部分的数据
+# 剩余问题：仿真中标号为11-30的无人机会将数据都发送到14549端口（不像前十架一样会自动分配端口），仿真中需要考虑
+# API/Offboard link 25.8 KB/s
 mavlink start -x -u $udp_offboard_port_local -r 4000000 -f -m onboard -o $udp_offboard_port_remote 		# Offboard链路（PX4 ↔ 外部控制程序），4,000,000 B/s，onboard模式
 
-# Onboard link to camera
+# Onboard link to camera 3.5 KB/s
 mavlink start -x -u $udp_onboard_payload_port_local -r 4000 -f -m onboard -o $udp_onboard_payload_port_remote 	# 相机链路（PX4 ↔ 相机），4,000 B/s，onboard模式
 
-# Onboard link to gimbal
+# Onboard link to gimbal 1.3 KB/s
 mavlink start -x -u $udp_onboard_gimbal_port_local -r 400000 -f -m gimbal -o $udp_onboard_gimbal_port_remote 	# 云台链路（PX4 ↔ 云台），400,000 B/s，gimbal模式
 
 # To display for SIH sitl

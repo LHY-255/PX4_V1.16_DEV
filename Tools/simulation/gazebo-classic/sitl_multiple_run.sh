@@ -17,8 +17,15 @@ function spawn_model() {
 	N=$2 #Instance Number
 	X=$3
 	Y=$4
-	X=${X:=0.0}
-	Y=${Y:=$((3*${N}))}
+
+	# Use a centered grid layout when coordinates are not explicitly provided.
+	if [ -z "$X" ] || [ -z "$Y" ]; then
+		idx=$(($N - 1))
+		col=$(($idx % $spawn_cols))
+		row=$(($idx / $spawn_cols))
+		X=$(awk "BEGIN {printf \"%.2f\", ($col - (($spawn_cols - 1) / 2.0)) * $spawn_spacing}")
+		Y=$(awk "BEGIN {printf \"%.2f\", $row * $spawn_spacing}")
+	fi
 
 	SUPPORTED_MODELS=("iris" "plane" "standard_vtol" "rover" "r1_rover" "typhoon_h480")
 	if [[ " ${SUPPORTED_MODELS[*]} " != *"$MODEL"* ]];
@@ -82,6 +89,10 @@ num_vehicles=${NUM_VEHICLES:=3}
 world=${WORLD:=empty}
 target=${TARGET:=px4_sitl_default}
 vehicle_model=${VEHICLE_MODEL:="iris"}
+
+# Default formation parameters for auto-placement.
+spawn_spacing=${SPAWN_SPACING:=3.0}
+spawn_cols=$(awk "BEGIN {print int(sqrt($num_vehicles - 1) + 1)}")
 export PX4_SIM_MODEL=gazebo-classic_${vehicle_model}
 
 echo ${SCRIPT}
